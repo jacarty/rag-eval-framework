@@ -8,6 +8,7 @@ requires-python = ">=3.13"
 dependencies = [
     "python-dotenv",
     "boto3",
+    "requests",
 ]
 
 [dependency-groups]
@@ -24,6 +25,24 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/"]
+
+[tool.uv]
+keyring-provider = "subprocess"
+index-strategy = "unsafe-best-match"
+
+[[tool.uv.index]]
+name = "assured-oss"
+url = "https://oauth2accesstoken@us-python.pkg.dev/cloud-aoss/cloud-aoss-python/simple/"
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple/"
+default = true
+
+[tool.uv.sources]
+python-dotenv = { index = "assured-oss" }
+boto3 = { index = "assured-oss" }
+requests = { index = "assured-oss" }
 
 [tool.ruff]
 line-length = 100
