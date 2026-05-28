@@ -146,4 +146,22 @@ fi
 
 echo "✓ No oversized files"
 
+# ============================================================================
+# PRE-COMMIT FRAMEWORK
+# ============================================================================
+# Run the pre-commit hooks (ruff, trailing whitespace, etc.)
+
+echo "🔍 Running pre-commit hooks..."
+
+if command -v uv > /dev/null 2>&1; then
+    uv run pre-commit run --config .pre-commit-config.yaml || exit 1
+elif command -v pre-commit > /dev/null 2>&1; then
+    pre-commit run --config .pre-commit-config.yaml || exit 1
+else
+    echo "${YELLOW}⚠ pre-commit not found. Skipping code quality checks.${NC}" >&2
+    echo "  Install with: uv sync && uv run pre-commit install" >&2
+fi
+
+echo "✓ Pre-commit hooks passed"
+
 exit 0
