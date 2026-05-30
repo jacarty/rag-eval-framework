@@ -1,0 +1,22 @@
+{
+  "document_title": "Customer Complaints Handling Procedure",
+  "document_type": "internal_policy",
+  "source": "synthetic",
+  "synthetic": true,
+  "organisation": "Crest Bank Ltd",
+  "fca_modules_referenced": [
+    "BCOBS 5",
+    "DISP",
+    "DISP 1",
+    "DISP 1.5",
+    "DISP 1.6.2R",
+    "DISP 2",
+    "DISP 2.7",
+    "PRIN 12",
+    "PRIN 6",
+    "SYSC 9.1"
+  ],
+  "generation_timestamp": "2026-05-30T09:21:48.773290+00:00",
+  "model_id": "eu.anthropic.claude-sonnet-4-6",
+  "word_count": 2353
+}

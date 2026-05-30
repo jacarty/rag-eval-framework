@@ -27,22 +27,7 @@ build-backend = "hatchling.build"
 packages = ["src/"]
 
 [tool.uv]
-keyring-provider = "subprocess"
-index-strategy = "unsafe-best-match"
-
-[[tool.uv.index]]
-name = "assured-oss"
-url = "https://oauth2accesstoken@us-python.pkg.dev/cloud-aoss/cloud-aoss-python/simple/"
-
-[[tool.uv.index]]
-name = "pypi"
-url = "https://pypi.org/simple/"
-default = true
-
-[tool.uv.sources]
-python-dotenv = { index = "assured-oss" }
-boto3 = { index = "assured-oss" }
-requests = { index = "assured-oss" }
+exclude-newer = "7 days"
 
 [tool.ruff]
 line-length = 100
@@ -72,6 +57,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Tests can have longer lines and unused imports for fixtures.
 "tests/**/*.py" = ["E501"]
+"scripts/generate_policies.py" = ["E501"]
 
 [tool.ruff.format]
 quote-style = "double"

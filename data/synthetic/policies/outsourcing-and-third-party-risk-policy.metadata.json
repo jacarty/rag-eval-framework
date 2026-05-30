@@ -1,0 +1,18 @@
+{
+  "document_title": "Outsourcing and Third-Party Risk Policy",
+  "document_type": "internal_policy",
+  "source": "synthetic",
+  "synthetic": true,
+  "organisation": "Crest Bank Ltd",
+  "fca_modules_referenced": [
+    "PRIN 11",
+    "PRIN 2",
+    "SYSC 13",
+    "SYSC 4.1",
+    "SYSC 8",
+    "SYSC 8.1"
+  ],
+  "generation_timestamp": "2026-05-30T09:29:28.846273+00:00",
+  "model_id": "eu.anthropic.claude-sonnet-4-6",
+  "word_count": 2547
+}
