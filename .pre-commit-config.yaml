@@ -1,4 +1,4 @@
-# Pre-commit hooks for the commodity briefing agent.
+# Pre-commit hooks for the rag-eval-framework.
 #
 # Setup (one-time, per developer):
 #   uv sync
@@ -27,3 +27,19 @@ repos:
       - id: ruff
         args: [--fix]
       - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: uv-audit
+        name: uv dependency audit (OSV)
+        entry: uv audit
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: pip-audit
+        name: pip-audit (PyPI advisory database)
+        entry: uvx pip-audit
+        language: system
+        pass_filenames: false
+        always_run: true
