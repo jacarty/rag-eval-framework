@@ -1,0 +1,25 @@
+{
+  "document_title": "Client Money and Assets Policy",
+  "document_type": "internal_policy",
+  "source": "synthetic",
+  "synthetic": true,
+  "organisation": "Crest Bank Ltd",
+  "fca_modules_referenced": [
+    "CASS",
+    "CASS 10",
+    "CASS 7",
+    "CASS 7.13",
+    "CASS 7.15",
+    "CASS 7.16",
+    "CASS 7.18",
+    "PRIN 10",
+    "PRIN 2",
+    "SUP 15.3",
+    "SUP 16",
+    "SYSC 4.1",
+    "SYSC 6.1"
+  ],
+  "generation_timestamp": "2026-05-30T09:41:08.860609+00:00",
+  "model_id": "eu.anthropic.claude-sonnet-4-6",
+  "word_count": 2350
+}
