@@ -77,7 +77,7 @@ rag-eval-framework/
 
 ## Prerequisites
 
-- Python 3.12
+- Python 3.13
 - [uv](https://docs.astral.sh/uv/) for package management
 - AWS account with Bedrock model access (Titan Embeddings V2, Cohere Embed English v3, Claude Sonnet, Claude Opus)
 - S3 Vectors bucket provisioned
