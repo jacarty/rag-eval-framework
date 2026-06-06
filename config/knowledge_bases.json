@@ -1,0 +1,46 @@
+{
+  "fixed-titan": {
+    "kb_id": "FRBWWO7NGL",
+    "kb_name": "rag-eval-fixed-titan",
+    "chunking_strategy": "FIXED_SIZE",
+    "embedding_model": "amazon.titan-embed-text-v2:0",
+    "index_arn": "arn:aws:s3vectors:eu-west-1:982099554067:bucket/rag-eval-vectors/index/rag-eval-fixed-titan",
+    "data_sources": {
+      "fca": "4OB76KA2EH",
+      "synthetic": "XRORMFI2EG"
+    }
+  },
+  "fixed-cohere": {
+    "kb_id": "MKLIBGRBTD",
+    "kb_name": "rag-eval-fixed-cohere",
+    "chunking_strategy": "FIXED_SIZE",
+    "embedding_model": "cohere.embed-english-v3",
+    "index_arn": "arn:aws:s3vectors:eu-west-1:982099554067:bucket/rag-eval-vectors/index/rag-eval-fixed-cohere",
+    "data_sources": {
+      "fca": "N1X5FXV9QX",
+      "synthetic": "GMCXMJG6VH"
+    }
+  },
+  "structure-titan": {
+    "kb_id": "HGSJPFZE0F",
+    "kb_name": "rag-eval-structure-titan",
+    "chunking_strategy": "NONE",
+    "embedding_model": "amazon.titan-embed-text-v2:0",
+    "index_arn": "arn:aws:s3vectors:eu-west-1:982099554067:bucket/rag-eval-vectors/index/rag-eval-structure-titan",
+    "data_sources": {
+      "fca": "8SW5WGP6E4",
+      "synthetic": "FMRPQCMMCC"
+    }
+  },
+  "structure-cohere": {
+    "kb_id": "JIGFAJTH5B",
+    "kb_name": "rag-eval-structure-cohere",
+    "chunking_strategy": "NONE",
+    "embedding_model": "cohere.embed-english-v3",
+    "index_arn": "arn:aws:s3vectors:eu-west-1:982099554067:bucket/rag-eval-vectors/index/rag-eval-structure-cohere",
+    "data_sources": {
+      "fca": "E54JLXUFOX",
+      "synthetic": "WYIEDSLRKZ"
+    }
+  }
+}
