@@ -52,7 +52,7 @@ Evaluation (src/eval/)
 
 ## Key Technology Choices
 
-- **Language:** Python 3.12
+- **Language:** Python 3.13
 - **Package manager:** uv
 - **Cloud:** AWS (eu-west-1)
 - **Vector store:** S3 Vectors (serverless)
@@ -101,14 +101,23 @@ rag-eval-framework/
 │   └── eval/                         # Judge prompts, metrics, runner
 │       └── __init__.py
 ├── data/
-│   ├── prompts/                      # Generation prompt templates
-│   ├── fca/                          # Scraped FCA JSONL (gitignored)
-│   ├── synthetic/                    # Generated policy docs (gitignored)
-│   └── qa/                           # Ground-truth Q&A pairs
+│   ├── prompts/                      # Generation prompt templates (pinned)
+│   ├── fca/
+│   │   ├── fca_handbook.jsonl        # Scraped FCA source (pinned)
+│   │   ├── sections/                 # Derived whole-section md (gitignored)
+│   │   └── sections-structure/       # Derived token-capped chunks (gitignored)
+│   ├── synthetic/
+│   │   ├── policies/                 # Bedrock-generated source, non-deterministic (pinned)
+│   │   └── policies-structure/       # Derived token-capped chunks (gitignored)
+│   └── qa/                           # Ground-truth Q&A pairs (pinned)
 ├── docs/
 │   └── adr/                          # Architecture decision records
 └── results/                          # Eval output (gitignored except summaries)
 ```
+
+**Data in git:** source corpora are pinned for reproducible eval results
+(`fca/fca_handbook.jsonl`, `synthetic/policies/`, `qa/`, `prompts/`); everything
+derived (`sections/`, `*-structure/`) is gitignored and rebuilt by the scripts.
 
 ---
 
@@ -178,10 +187,14 @@ main                         ← protected
 
 ## Common Pitfalls & Constraints
 
-- **Cohere Embed v3 has a 512-token input limit.** Structure-aware chunks exceeding this are silently truncated. Log warnings; document as a finding, not a bug.
+- **Cohere Embed v3 has TWO hard limits at KB ingestion: 2048 *characters* AND 512 *tokens* — and the token limit is the binding one. Neither truncates; both fail the ingestion record.** Over 2048 chars → `Malformed input request: expected maxLength: 2048`. Over 512 tokens → `Invalid parameter combination` (Bedrock invokes Cohere with no truncation). The token limit is the harder constraint because token count is NOT proportional to characters: within a 2000-char budget, true Cohere token counts on the FCA corpus ranged 15–881. HTML entities are the main culprit — a single `&nbsp;` left in the scraped text inflates the token count sharply, so entity-laden annex/table sections blew past 512 tokens while staying under 2000 chars. The fix is upstream and two-part: (1) `clean_text()` in `convert_fca_to_sections.py` decodes HTML entities before chunking; (2) `src/chunking/structure.py` packs by **Cohere tokens** (cap 480, margin under 512), measured with Cohere's own tokenizer vendored at `src/chunking/cohere_tokenizer.json` (no network at runtime; `tokenizers` is a runtime dep). Files land in `*-structure` prefixes; both structure KBs share one prefix per corpus so the only variable between titan and cohere is the model. Note: ~140 chunks that *passed* were also >512 tokens — Cohere was silently truncating them (quality bug), so the token cap fixes those too. Titan's cap is ~8192 tokens / 50000 chars, so it is never the binding model.
+- **Bedrock S3 metadata sidecars must be named `<full-filename>.metadata.json` (WITH the source extension) and wrapped in `{"metadataAttributes": {...}}`.** A sidecar named `<slug>.metadata.json` or containing a bare object is silently ignored — ingestion still succeeds but chunks carry no custom metadata (verify with a `retrieve` call: only `x-amz-bedrock-kb-*` keys come back). Keep custom metadata to short scalars: it is filterable by default and counts against the S3 Vectors 2048-byte filterable cap, so large lists (all of a section's `provision_ids`/`cross_references`) can breach it and fail ingestion. The eval maps ground truth via the scalar `section` key; provision IDs stay in the chunk text.
 - **tiktoken is a proxy for token counting.** Titan V2 and Cohere have different tokenisers. Counts are approximate.
 - **S3 Vectors `returnMetadata=True` requires both `s3vectors:QueryVectors` AND `s3vectors:GetVectors` IAM permissions.** Missing the second causes a 403 at query time.
 - **Cohere embedding requires `input_type` parameter.** Use `"search_document"` at ingestion, `"search_query"` at query time.
+- **Cohere on Bedrock is a Marketplace-served model — it must be enabled by a human first.** A user (not the KB service role) with AWS Marketplace permissions must call `InvokeModel` on `cohere.embed-english-v3` **once** to enable it account-wide; the KB role cannot bootstrap this itself and will 403 with "not authorized to perform AWS Marketplace actions" until it's done. The entitlement takes ~2 minutes to propagate after the first invoke ("subscription cannot be completed at this time... try again after 2 minutes" is transient, not fatal). Note: the Marketplace "Launch / Configure" product (SageMaker/CloudFormation/CLI endpoint deploy) is a *different*, hourly-billed offering — do **not** use it for the serverless on-demand model the KBs need.
+- **Account pinning matters — the stack lives in member account `982099554067`, not the Org management account `449154017877`.** Marketplace subscriptions and model enablement are per-account, so enabling Cohere in the management account does nothing for the KBs. The default AWS profile resolves to the management account; `.env` pins `AWS_PROFILE=AdministratorAccess-982099554067` so the pipeline always targets the right one.
+- **One ingestion job per KB at a time.** `start_ingestion_job` rejects a second data source while the first is running, so the two sources on a KB MUST be sequenced. `sync_all` now starts each job, polls `get_ingestion_job` until a terminal state (`COMPLETE`/`FAILED`/`STOPPED`), then starts the next — so a single `--sync-only` pass takes all 8 data sources (4 KBs × fca + synthetic) to completion and prints a status summary. (The old version fired both sources 2s apart and only caught the literal string `"concurrent ingestion"`, which never matched Bedrock's actual message — so the synthetic source was silently skipped on three KBs.)
 - **FCA API rate limiting:** No observed limits, but add 0.5-1s delay between calls. Be polite.
 
 ---

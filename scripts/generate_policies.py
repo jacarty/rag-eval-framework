@@ -12,12 +12,16 @@ import json
 import logging
 import os
 import re
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
 import boto3
 from botocore.config import Config
 from dotenv import load_dotenv
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from src.chunking.structure import pack_units  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -136,6 +140,9 @@ POLICIES = [
 
 PROMPT_PATH = Path("data/prompts/policy_generation_prompt.txt")
 OUTPUT_DIR = Path("data/synthetic/policies")
+# Structure-aware (NONE-chunking) output: heading-split files <= MAX_CHARS,
+# read by the structure-titan and structure-cohere KBs.
+STRUCTURE_DIR = Path("data/synthetic/policies-structure")
 
 # Matches patterns like PRIN 2, SYSC 6.1.1R, COBS 2.1.1R, MCOB 3A, CONC 5.2, CASS 7.13.8R
 FCA_REF_PATTERN = re.compile(
@@ -203,41 +210,127 @@ def generate_policy(
     return "\n".join(text_parts)
 
 
-def save_policy(policy_name: str, content: str, model_id: str) -> tuple[Path, Path]:
-    """Save markdown and metadata sidecar. Returns (md_path, meta_path)."""
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    slug = slugify(policy_name)
-    md_path = OUTPUT_DIR / f"{slug}.md"
-    meta_path = OUTPUT_DIR / f"{slug}.metadata.json"
+def build_policy_metadata(policy_name: str, content: str, model_id: str) -> dict:
+    """Lean, scalar-only metadata for a synthetic policy document.
 
-    md_path.write_text(content)
-
-    fca_refs = extract_fca_references(content)
-    metadata = {
+    Kept to short scalars so the combined filterable metadata stays under the
+    S3 Vectors 2048-byte cap. The list of referenced FCA modules is intentionally
+    omitted from the sidecar (it can be large and is filterable); a count is kept
+    and the references remain in the document text.
+    """
+    return {
         "document_title": policy_name,
         "document_type": "internal_policy",
         "source": "synthetic",
         "synthetic": True,
         "organisation": "Crest Bank Ltd",
-        "fca_modules_referenced": fca_refs,
+        "doc_type": "internal_policy",
+        "fca_modules_count": len(extract_fca_references(content)),
         "generation_timestamp": datetime.now(UTC).isoformat(),
         "model_id": model_id,
         "word_count": len(content.split()),
     }
-    meta_path.write_text(json.dumps(metadata, indent=2))
+
+
+def write_sidecar(meta_path: Path, metadata: dict) -> None:
+    """Write a Bedrock metadata sidecar in the required '{metadataAttributes}' form."""
+    meta_path.write_text(json.dumps({"metadataAttributes": metadata}, indent=2))
+
+
+def save_policy(policy_name: str, content: str, model_id: str) -> tuple[Path, Path]:
+    """Save markdown and metadata sidecar. Returns (md_path, meta_path).
+
+    The sidecar must be named '<source-filename>.metadata.json' (i.e. including
+    the .md extension); Bedrock silently ignores any other name.
+    """
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    slug = slugify(policy_name)
+    md_path = OUTPUT_DIR / f"{slug}.md"
+    meta_path = OUTPUT_DIR / f"{slug}.md.metadata.json"
+
+    md_path.write_text(content)
+    write_sidecar(meta_path, build_policy_metadata(policy_name, content, model_id))
 
     return md_path, meta_path
 
 
-def upload_to_s3(session: boto3.Session, bucket: str, prefix: str) -> None:
-    """Upload all generated policies and metadata to S3."""
+def split_policy_markdown(content: str) -> tuple[str, list[tuple[str, str]]]:
+    """Split a policy doc into a title header and (heading, block) units.
+
+    Units are the level-2 ('## ') sections; the level-1 ('# ') title becomes the
+    per-chunk header. Each unit's text retains its '## ' heading so chunks stay
+    self-describing at retrieval.
+    """
+    title = ""
+    units: list[tuple[str, str]] = []
+    cur_head: str | None = None
+    cur_lines: list[str] = []
+
+    def flush() -> None:
+        nonlocal cur_lines
+        body = "\n".join(cur_lines).strip()
+        if body:
+            label = cur_head or "preamble"
+            text = f"{cur_head}\n\n{body}" if cur_head else body
+            units.append((label, text))
+        cur_lines = []
+
+    for line in content.splitlines():
+        if line.startswith("## "):
+            flush()
+            cur_head = line.strip()
+        elif line.startswith("# "):
+            if not title:
+                title = line.strip()
+        else:
+            cur_lines.append(line)
+    flush()
+    return title or "# Policy", units
+
+
+def build_structure_chunks(model_id: str) -> int:
+    """Build heading-split chunk files (<= MAX_CHARS) from existing policy docs.
+
+    Reads each '*.md' in OUTPUT_DIR (skipping sidecars), splits it, and writes
+    one capped chunk file + sidecar per chunk to STRUCTURE_DIR. Returns the chunk
+    count. Does not call Bedrock — operates on already-generated documents.
+    """
+    STRUCTURE_DIR.mkdir(parents=True, exist_ok=True)
+    for stale in [*STRUCTURE_DIR.glob("*.md"), *STRUCTURE_DIR.glob("*.json")]:
+        stale.unlink()
+
+    chunk_count = 0
+    policy_files = sorted(OUTPUT_DIR.glob("*.md"))
+    for md_path in policy_files:
+        slug = md_path.stem
+        content = md_path.read_text()
+        title, units = split_policy_markdown(content)
+        policy_name = title.lstrip("# ").strip()
+
+        base_meta = build_policy_metadata(policy_name, content, model_id)
+        chunks = pack_units(units, header=title)
+        for i, chunk in enumerate(chunks):
+            chunk_slug = f"{slug}-{i:03d}"
+            (STRUCTURE_DIR / f"{chunk_slug}.md").write_text(chunk["text"])
+            meta = {**base_meta, "chunk_index": i, "section_heading": chunk["labels"][0]}
+            write_sidecar(STRUCTURE_DIR / f"{chunk_slug}.md.metadata.json", meta)
+            chunk_count += 1
+    return chunk_count
+
+
+def upload_dir_to_s3(session: boto3.Session, src_dir: Path, bucket: str, prefix: str) -> None:
+    """Upload every file in src_dir to s3://bucket/prefix/."""
     s3 = session.client("s3")
-    files = list(OUTPUT_DIR.glob("*"))
-    for file_path in sorted(files):
+    files = sorted(src_dir.glob("*"))
+    for file_path in files:
         key = f"{prefix}/{file_path.name}"
-        logger.info(f"Uploading {file_path.name} → s3://{bucket}/{key}")
         s3.upload_file(str(file_path), bucket, key)
     logger.info(f"Uploaded {len(files)} files to s3://{bucket}/{prefix}/")
+
+
+def upload_to_s3(session: boto3.Session, bucket: str, prefix: str) -> None:
+    """Upload all generated whole policies and metadata to S3 (fixed arm)."""
+    upload_dir_to_s3(session, OUTPUT_DIR, bucket, prefix)
 
 
 def main() -> None:
@@ -258,6 +351,12 @@ def main() -> None:
         help="Generate locally without uploading to S3",
     )
     parser.add_argument(
+        "--rebuild-structure",
+        action="store_true",
+        help="Skip generation: repair whole-doc sidecars + rebuild structure chunks "
+        "from existing policies, then upload both prefixes",
+    )
+    parser.add_argument(
         "--model-id",
         type=str,
         default=os.getenv("BEDROCK_GENERATION_MODEL", "eu.anthropic.claude-sonnet-4-6"),
@@ -266,6 +365,10 @@ def main() -> None:
     args = parser.parse_args()
 
     load_dotenv()
+
+    if args.rebuild_structure:
+        rebuild_structure(args.model_id, skip_upload=args.skip_upload)
+        return
 
     # Filter to a single policy if requested
     if args.policy:
@@ -320,18 +423,68 @@ def main() -> None:
     print(f"Output directory: {OUTPUT_DIR}/")
     print(f"{'=' * 60}\n")
 
-    # S3 upload
+    # Build structure-aware chunks from the documents just generated
+    chunk_count = build_structure_chunks(args.model_id)
+    print(f"Structure chunks: {chunk_count} -> {STRUCTURE_DIR}/")
+
+    # S3 upload (both prefixes: whole docs for fixed arm, chunks for structure arm)
     if not args.skip_upload and generated > 0:
-        bucket = os.getenv("S3_BUCKET")
-        prefix = os.getenv("S3_SYNTHETIC_PREFIX", "synthetic/policies")
-        if bucket:
-            session = boto3.Session(
-                profile_name=os.getenv("AWS_PROFILE"),
-                region_name=os.getenv("AWS_REGION", "eu-west-1"),
-            )
-            upload_to_s3(session, bucket, prefix)
-        else:
-            logger.warning("S3_BUCKET not set in .env — skipping upload")
+        _upload_both()
+
+
+def _clean_stale_whole_sidecars() -> None:
+    """Delete legacy '<slug>.metadata.json' sidecars (wrong name, ignored by Bedrock)."""
+    for f in OUTPUT_DIR.glob("*.metadata.json"):
+        if not f.name.endswith(".md.metadata.json"):
+            f.unlink()
+
+
+def _repair_whole_sidecars(model_id: str) -> int:
+    """Re-write correct '<file>.md.metadata.json' sidecars for existing policy docs."""
+    _clean_stale_whole_sidecars()
+    count = 0
+    for md_path in sorted(OUTPUT_DIR.glob("*.md")):
+        content = md_path.read_text()
+        title, _ = split_policy_markdown(content)
+        policy_name = title.lstrip("# ").strip()
+        meta = build_policy_metadata(policy_name, content, model_id)
+        write_sidecar(OUTPUT_DIR / f"{md_path.stem}.md.metadata.json", meta)
+        count += 1
+    return count
+
+
+def _upload_both() -> None:
+    """Upload whole-doc and structure prefixes from .env config."""
+    bucket = os.getenv("S3_BUCKET")
+    if not bucket:
+        logger.warning("S3_BUCKET not set in .env — skipping upload")
+        return
+    whole_prefix = os.getenv("S3_SYNTHETIC_PREFIX", "synthetic/policies")
+    structure_prefix = os.getenv("S3_SYNTHETIC_STRUCTURE_PREFIX", "synthetic/policies-structure")
+    session = boto3.Session(
+        profile_name=os.getenv("AWS_PROFILE"),
+        region_name=os.getenv("AWS_REGION", "eu-west-1"),
+    )
+    upload_dir_to_s3(session, OUTPUT_DIR, bucket, whole_prefix)
+    upload_dir_to_s3(session, STRUCTURE_DIR, bucket, structure_prefix)
+
+
+def rebuild_structure(model_id: str, skip_upload: bool) -> None:
+    """No-generation path: repair sidecars + rebuild structure chunks + upload both."""
+    if not OUTPUT_DIR.exists() or not any(OUTPUT_DIR.glob("*.md")):
+        logger.error(f"No policy documents found in {OUTPUT_DIR} — run generation first")
+        raise SystemExit(1)
+
+    repaired = _repair_whole_sidecars(model_id)
+    chunk_count = build_structure_chunks(model_id)
+
+    print(f"\n{'=' * 60}")
+    print(f"Repaired whole-doc sidecars: {repaired} -> {OUTPUT_DIR}/")
+    print(f"Structure chunks:            {chunk_count} -> {STRUCTURE_DIR}/")
+    print(f"{'=' * 60}\n")
+
+    if not skip_upload:
+        _upload_both()
 
 
 if __name__ == "__main__":

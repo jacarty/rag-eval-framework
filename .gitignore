@@ -1,4 +1,11 @@
-data/fca/fca_handbook.jsonl
+# Generated / derived data — always rebuilt by scripts, never committed.
+# Source corpora ARE pinned for reproducible eval results:
+#   data/fca/fca_handbook.jsonl       (scraped FCA source)
+#   data/synthetic/policies/          (Bedrock-generated source — non-deterministic)
+#   data/qa/, data/prompts/           (curated)
+data/fca/sections/
+data/fca/sections-structure/
+data/synthetic/policies-structure/
 
 # OS generated files
 .DS_Store
