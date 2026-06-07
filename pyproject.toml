@@ -10,6 +10,7 @@ dependencies = [
     "boto3",
     "requests",
     "tokenizers",
+    "pydantic>=2.13.4",
 ]
 
 [dependency-groups]
