@@ -60,6 +60,12 @@ ignore = [
 # Tests can have longer lines and unused imports for fixtures.
 "tests/**/*.py" = ["E501"]
 "scripts/generate_policies.py" = ["E501"]
+"scripts/judge.py" = ["E501"]
+"scripts/run_eval.py" = ["E501"]
+"scripts/metrics.py" = ["E501"]
+"src/judge.py" = ["E501"]
+"src/metrics.py" = ["E501"]
+
 
 [tool.ruff.format]
 quote-style = "double"
