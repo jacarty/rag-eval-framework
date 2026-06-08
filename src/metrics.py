@@ -25,6 +25,7 @@ TOKEN_PRICES = {
     "global.anthropic.claude-sonnet-4-6": {"input": 0.003, "output": 0.015},
     # Judge models
     "global.anthropic.claude-opus-4-6-v1": {"input": 0.015, "output": 0.075},
+    "eu.anthropic.claude-haiku-4-5-20251001-v1:0": {"input": 0.001, "output": 0.005},
     "openai.gpt-oss-120b-1:0": {"input": 0.003, "output": 0.012},
     # Embedding models (per 1k tokens, used during KB sync not per-query)
     "amazon.titan-embed-text-v2:0": {"input": 0.00002, "output": 0.0},
@@ -152,12 +153,10 @@ def resolve_relevant_chunks(
 
         for source_section in source_sections:
             if source_section.startswith("synthetic_"):
-                # Synthetic policy — match on slug in S3 URI or document_title
                 slug = source_section.replace("synthetic_", "")
                 if slug in chunk_id:
                     relevant.add(chunk_id)
                     break
-                # Also match on document_title (slug with hyphens → title)
                 if (
                     chunk_source == "synthetic"
                     and slug.replace("-", " ").lower() in chunk_doc_title.lower()
@@ -165,12 +164,9 @@ def resolve_relevant_chunks(
                     relevant.add(chunk_id)
                     break
             else:
-                # FCA section — match on metadata section field or S3 URI
                 if chunk_section == source_section:
                     relevant.add(chunk_id)
                     break
-                # Fallback: check if section ID appears in the S3 URI
-                # e.g. s3://bucket/fca-handbook/sections-structure/sysc10s1-000.md
                 if f"/{source_section}" in chunk_id or f"/{source_section}-" in chunk_id:
                     relevant.add(chunk_id)
                     break
@@ -189,15 +185,7 @@ def compute_retrieval_metrics(
     *,
     all_section_chunk_ids: set[str] | None = None,
 ) -> RetrievalMetrics:
-    """Compute Precision@k and Recall@k for retrieval.
-
-    Args:
-        source_sections: Ground-truth source section IDs from Q&A pair
-        retrieved_chunks: Chunks returned by the pipeline
-        all_section_chunk_ids: If provided, the full set of chunk IDs that
-            belong to the source sections (for recall denominator).
-            If None, uses the relevant chunks found in the retrieved set.
-    """
+    """Compute Precision@k and Recall@k for retrieval."""
     k = len(retrieved_chunks)
     if k == 0:
         return RetrievalMetrics(
@@ -213,13 +201,9 @@ def compute_retrieval_metrics(
 
     precision = relevant_retrieved / k
 
-    # For recall, we need the total number of relevant chunks.
-    # If we have the full set, use it. Otherwise, use relevant_retrieved as a lower bound.
     if all_section_chunk_ids is not None:
         total_relevant = len(all_section_chunk_ids)
     else:
-        # Without full enumeration, we can only measure recall against what we found.
-        # This is an approximation — true recall requires knowing all relevant chunks.
         total_relevant = max(relevant_retrieved, 1)
 
     recall = relevant_retrieved / total_relevant if total_relevant > 0 else 0.0
@@ -238,13 +222,7 @@ def compute_citation_metrics(
     retrieved_chunk_ids: set[str],
     relevant_chunk_ids: set[str],
 ) -> CitationMetrics:
-    """Compute citation accuracy.
-
-    Args:
-        citations: Chunk IDs cited in the answer
-        retrieved_chunk_ids: Set of all retrieved chunk IDs
-        relevant_chunk_ids: Set of relevant retrieved chunk IDs
-    """
+    """Compute citation accuracy."""
     if not citations:
         return CitationMetrics(
             citation_precision=0.0,
@@ -253,11 +231,9 @@ def compute_citation_metrics(
             valid_citations=0,
         )
 
-    # Citation precision: how many cited chunks are actually in the retrieved set?
     valid = sum(1 for c in citations if c in retrieved_chunk_ids)
     precision = valid / len(citations)
 
-    # Citation recall: how many relevant chunks are cited?
     if relevant_chunk_ids:
         cited_relevant = sum(1 for c in citations if c in relevant_chunk_ids)
         recall = cited_relevant / len(relevant_chunk_ids)
@@ -352,17 +328,10 @@ def compute_inter_judge_agreement(
     primary_claims: list,
     secondary_claims: list,
 ) -> float:
-    """Compute claim-level agreement between two judges.
-
-    Matches claims by index (assumes both judges decompose in similar order).
-    Agreement = fraction of claims where both judges assign the same grounding status.
-
-    Returns a float between 0.0 and 1.0.
-    """
+    """Compute claim-level agreement between two judges."""
     if not primary_claims or not secondary_claims:
         return 0.0
 
-    # Use the shorter list length for comparison
     n = min(len(primary_claims), len(secondary_claims))
     if n == 0:
         return 0.0
@@ -415,5 +384,5 @@ def compute_aggregate_metrics(
         ),
         latency=compute_latency_stats(latencies),
         cost_per_query_mean=statistics.mean(q.cost.total_cost for q in query_metrics_list),
-        inter_judge_agreement=0.0,  # Set separately after computing
+        inter_judge_agreement=0.0,
     )

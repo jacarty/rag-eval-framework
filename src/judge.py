@@ -1,8 +1,9 @@
 """LLM-as-judge module for claim-level faithfulness evaluation.
 
-Uses two judges for inter-judge calibration:
-- Claude Opus 4.6 via Bedrock (primary)
-- GPT-oss-120b via Bedrock converse API (secondary)
+Supports configurable judge models via presets or full model IDs:
+- opus: Claude Opus 4.6 via Bedrock (highest quality, most expensive)
+- haiku: Claude Haiku 4.5 via Bedrock (fast, cheap, good enough for most evals)
+- gpt-oss: GPT-oss-120b via Bedrock converse API (reasoning model, cross-provider)
 
 Each judge decomposes the answer into individual claims and classifies each as:
 - GROUNDED: traceable to a specific retrieved chunk
@@ -19,11 +20,24 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Models
+# Model presets
 # ---------------------------------------------------------------------------
 
-JUDGE_PRIMARY = "global.anthropic.claude-opus-4-6-v1"
-JUDGE_SECONDARY = "openai.gpt-oss-120b-1:0"
+JUDGE_PRESETS = {
+    "opus": "global.anthropic.claude-opus-4-6-v1",
+    "haiku": "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "sonnet": "global.anthropic.claude-sonnet-4-6",
+    "gpt-oss": "openai.gpt-oss-120b-1:0",
+}
+
+# Defaults
+JUDGE_PRIMARY = JUDGE_PRESETS["opus"]
+JUDGE_SECONDARY = JUDGE_PRESETS["gpt-oss"]
+
+
+def resolve_judge_model(name_or_id: str) -> str:
+    """Resolve a preset name or full model ID to a Bedrock model ID."""
+    return JUDGE_PRESETS.get(name_or_id, name_or_id)
 
 
 class Claim(BaseModel):
@@ -135,19 +149,15 @@ def _extract_text_from_converse(response: dict) -> str:
         if block.get("type") == "text" or "text" in block:
             parts.append(block.get("text", ""))
         elif "reasoningContent" in block:
-            # gpt-oss-120b returns reasoning + text in separate blocks
             rc = block["reasoningContent"]
             if "reasoningText" in rc:
-                # The actual answer is in the text blocks, not reasoning
                 continue
-    # If we got no text parts, try extracting from reasoningContent
     if not parts:
         for block in content:
             if "reasoningContent" in block:
                 rc = block["reasoningContent"]
                 if "reasoningText" in rc and "text" in rc["reasoningText"]:
                     parts.append(rc["reasoningText"]["text"])
-    # Last resort: look for any text field
     if not parts:
         for block in content:
             if isinstance(block, dict):
@@ -160,18 +170,15 @@ def _extract_text_from_converse(response: dict) -> str:
 
 def _parse_claims(raw_text: str) -> list[Claim]:
     """Parse the judge's JSON response into Claim objects."""
-    # Strip markdown fences if present
     text = raw_text.strip()
     if text.startswith("```"):
         lines = text.split("\n")
-        # Remove first and last lines (fences)
         text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
         text = text.strip()
 
     try:
         claims_data = json.loads(text)
     except json.JSONDecodeError:
-        # Try to find a JSON array in the text
         start = text.find("[")
         end = text.rfind("]") + 1
         if start >= 0 and end > start:
@@ -186,16 +193,21 @@ def _parse_claims(raw_text: str) -> list[Claim]:
 
     claims = []
     for item in claims_data:
-        # Normalize grounding values
         grounding = item.get("grounding", "UNGROUNDED").upper().replace(" ", "_")
         if grounding not in ("GROUNDED", "PARTIALLY_GROUNDED", "UNGROUNDED"):
             grounding = "UNGROUNDED"
+
+        chunk_id = item.get("supporting_chunk_id")
+        if isinstance(chunk_id, list):
+            chunk_id = chunk_id[0] if chunk_id else None
+        elif not isinstance(chunk_id, (str, type(None))):
+            chunk_id = str(chunk_id)
 
         claims.append(
             Claim(
                 claim=item.get("claim", ""),
                 grounding=grounding,
-                supporting_chunk_id=item.get("supporting_chunk_id"),
+                supporting_chunk_id=chunk_id,
                 reasoning=item.get("reasoning", ""),
             )
         )
@@ -222,11 +234,12 @@ def run_judge(
         question: The original question
         answer: The generated answer to evaluate
         chunks: List of retrieved chunk dicts (chunk_id, content, metadata)
-        model_id: Judge model ID
+        model_id: Judge model ID or preset name ('opus', 'haiku', 'sonnet', 'gpt-oss')
 
     Returns:
         JudgeResult with per-claim grounding classifications.
     """
+    model_id = resolve_judge_model(model_id)
     user_message = _build_judge_user_message(question, answer, chunks)
 
     start = time.perf_counter()
@@ -248,13 +261,9 @@ def run_judge(
 
     latency_ms = (time.perf_counter() - start) * 1000
 
-    # Extract text
     raw_text = _extract_text_from_converse(response)
-
-    # Parse claims
     claims = _parse_claims(raw_text)
 
-    # Usage
     usage = {}
     if "usage" in response:
         usage = {
@@ -285,12 +294,23 @@ def run_dual_judges(
     question: str,
     answer: str,
     chunks: list[dict],
+    *,
+    primary_model: str = JUDGE_PRIMARY,
+    secondary_model: str = JUDGE_SECONDARY,
 ) -> tuple[JudgeResult, JudgeResult]:
-    """Run both primary (Claude Opus) and secondary (gpt-oss-120b) judges.
+    """Run both primary and secondary judges.
+
+    Args:
+        client: bedrock-runtime boto3 client
+        question: The original question
+        answer: The generated answer to evaluate
+        chunks: List of retrieved chunk dicts
+        primary_model: Primary judge model ID or preset name
+        secondary_model: Secondary judge model ID or preset name
 
     Returns:
         Tuple of (primary_result, secondary_result)
     """
-    primary = run_judge(client, question, answer, chunks, model_id=JUDGE_PRIMARY)
-    secondary = run_judge(client, question, answer, chunks, model_id=JUDGE_SECONDARY)
+    primary = run_judge(client, question, answer, chunks, model_id=primary_model)
+    secondary = run_judge(client, question, answer, chunks, model_id=secondary_model)
     return primary, secondary
