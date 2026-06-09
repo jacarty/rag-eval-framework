@@ -1,0 +1,74 @@
+{
+  "fixed-titan": {
+    "config_label": "fixed-titan",
+    "n_queries": 78,
+    "retrieval_precision_mean": 0.1346153846153846,
+    "retrieval_recall_mean": 0.9871794871794872,
+    "grounded_pct_mean": 0.8911892063684157,
+    "ungrounded_pct_mean": 0.01672443632285261,
+    "citation_precision_mean": 1.0,
+    "latency": {
+      "mean_ms": 12946.429925230754,
+      "median_ms": 12548.19493749983,
+      "p95_ms": 23629.25137500133,
+      "min_ms": 3741.7758339997818,
+      "max_ms": 27328.645290999702
+    },
+    "cost_per_query_mean": 0.09834534615384616,
+    "inter_judge_agreement": 0.7678214016166505
+  },
+  "fixed-cohere": {
+    "config_label": "fixed-cohere",
+    "n_queries": 78,
+    "retrieval_precision_mean": 0.1207977207977208,
+    "retrieval_recall_mean": 0.9615384615384616,
+    "grounded_pct_mean": 0.9175162185661658,
+    "ungrounded_pct_mean": 0.012745499950834939,
+    "citation_precision_mean": 1.0,
+    "latency": {
+      "mean_ms": 12574.543879846202,
+      "median_ms": 12565.819999999803,
+      "p95_ms": 21051.015208000535,
+      "min_ms": 3101.9952919996285,
+      "max_ms": 25560.562000000573
+    },
+    "cost_per_query_mean": 0.09522644871794872,
+    "inter_judge_agreement": 0.7683862839109127
+  },
+  "structure-titan": {
+    "config_label": "structure-titan",
+    "n_queries": 78,
+    "retrieval_precision_mean": 0.3820512820512821,
+    "retrieval_recall_mean": 0.9743589743589743,
+    "grounded_pct_mean": 0.9023448890753606,
+    "ungrounded_pct_mean": 0.02031798610745979,
+    "citation_precision_mean": 0.9916310541310541,
+    "latency": {
+      "mean_ms": 13335.867396320422,
+      "median_ms": 12760.289478999766,
+      "p95_ms": 23632.881000001362,
+      "min_ms": 3377.2878750005475,
+      "max_ms": 27048.743583000032
+    },
+    "cost_per_query_mean": 0.09653785897435897,
+    "inter_judge_agreement": 0.7787806673064605
+  },
+  "structure-cohere": {
+    "config_label": "structure-cohere",
+    "n_queries": 78,
+    "retrieval_precision_mean": 0.33076923076923076,
+    "retrieval_recall_mean": 0.9615384615384616,
+    "grounded_pct_mean": 0.9038116455180042,
+    "ungrounded_pct_mean": 0.01794313236620929,
+    "citation_precision_mean": 0.9985754985754985,
+    "latency": {
+      "mean_ms": 13301.353938038841,
+      "median_ms": 13327.272083499338,
+      "p95_ms": 22437.180791999708,
+      "min_ms": 3189.1569170002185,
+      "max_ms": 25462.1428749997
+    },
+    "cost_per_query_mean": 0.09648151282051282,
+    "inter_judge_agreement": 0.7549521923136882
+  }
+}
